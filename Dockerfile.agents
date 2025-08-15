@@ -1,0 +1,43 @@
+
+# Dockerfile for AI Agents Worker Service
+FROM node:18-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat python3 make g++
+WORKDIR /app
+
+# Install dependencies
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+RUN \
+  if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
+  elif [ -f package-lock.json ]; then npm ci; \
+  elif [ -f pnpm-lock.yaml ]; then yarn global add pnpm && pnpm i --frozen-lockfile; \
+  else echo "Lockfile not found." && exit 1; \
+  fi
+
+# Production image for AI agents
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV production
+
+RUN addgroup --system --gid 1001 agents
+RUN adduser --system --uid 1001 agent
+
+# Copy node_modules from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy application code
+COPY --chown=agent:agents . .
+
+# Create logs directory
+RUN mkdir -p logs && chown agent:agents logs
+
+USER agent
+
+# Expose port for health checks (if needed)
+EXPOSE 8080
+
+# Start the AI agents worker
+CMD ["node", "workers/ai-agents.js"]

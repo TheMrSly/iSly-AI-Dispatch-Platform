@@ -1,0 +1,108 @@
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: isly-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-isly_db}
+      POSTGRES_USER: ${POSTGRES_USER:-isly_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-isly_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-isly_user} -d ${POSTGRES_DB:-isly_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - isly-network
+
+  # NextJS Web Application
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: isly-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-isly_user}:${POSTGRES_PASSWORD:-isly_password}@postgres:5432/${POSTGRES_DB:-isly_db}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-your-secret-key-here}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - isly-network
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: isly-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - isly-network
+
+  # AI Agents Worker Service
+  ai-agents:
+    build:
+      context: .
+      dockerfile: Dockerfile.agents
+    container_name: isly-ai-agents
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-isly_user}:${POSTGRES_PASSWORD:-isly_password}@postgres:5432/${POSTGRES_DB:-isly_db}
+      REDIS_URL: redis://redis:6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - isly-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  isly-network:
+    driver: bridge

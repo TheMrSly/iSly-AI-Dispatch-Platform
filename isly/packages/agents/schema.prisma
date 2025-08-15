@@ -1,0 +1,339 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      UserRole @default(DISPATCHER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  assignedLoads Load[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Driver {
+  id          String      @id @default(cuid())
+  name        String
+  email       String      @unique
+  phone       String
+  licenseNo   String      @unique
+  cdlClass    String
+  status      DriverStatus @default(AVAILABLE)
+  currentLocation String?
+  homeBase    String
+  hirDate     DateTime
+  rating      Float       @default(5.0)
+  totalMiles  Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  truck       Truck?      @relation(fields: [truckId], references: [id])
+  truckId     String?
+  loads       Load[]
+  hosLogs     HOSLog[]
+  fuelLogs    FuelLog[]
+  violations  ComplianceEvent[]
+
+  @@map("drivers")
+}
+
+model Truck {
+  id          String      @id @default(cuid())
+  unitNumber  String      @unique
+  make        String
+  model       String
+  year        Int
+  vin         String      @unique
+  plateNumber String
+  status      TruckStatus @default(AVAILABLE)
+  currentLocation String?
+  mileage     Int         @default(0)
+  fuelCapacity Float
+  maxWeight   Int
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  drivers     Driver[]
+  loads       Load[]
+  fuelLogs    FuelLog[]
+  maintenanceLogs MaintenanceLog[]
+
+  @@map("trucks")
+}
+
+model Load {
+  id              String     @id @default(cuid())
+  loadNumber      String     @unique
+  status          LoadStatus @default(AVAILABLE)
+  pickupLocation  String
+  deliveryLocation String
+  pickupDate      DateTime
+  deliveryDate    DateTime
+  distance        Float
+  weight          Int
+  commodity       String
+  rate            Float
+  brokerName      String?
+  brokerContact   String?
+  specialInstructions String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  // Relations
+  driver          Driver?    @relation(fields: [driverId], references: [id])
+  driverId        String?
+  truck           Truck?     @relation(fields: [truckId], references: [id])
+  truckId         String?
+  dispatcher      User?      @relation(fields: [dispatcherId], references: [id])
+  dispatcherId    String?
+  trackingEvents  TrackingEvent[]
+
+  @@map("loads")
+}
+
+model TrackingEvent {
+  id          String   @id @default(cuid())
+  eventType   String
+  location    String
+  timestamp   DateTime
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  load        Load     @relation(fields: [loadId], references: [id])
+  loadId      String
+
+  @@map("tracking_events")
+}
+
+model Agent {
+  id          String      @id @default(cuid())
+  name        String
+  type        AgentType
+  status      AgentStatus @default(ACTIVE)
+  description String
+  config      Json        @default("{}")
+  lastRun     DateTime?
+  nextRun     DateTime?
+  successRate Float       @default(0.0)
+  totalRuns   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  notifications Notification[]
+  metrics       AgentMetric[]
+
+  @@map("agents")
+}
+
+model AgentMetric {
+  id        String   @id @default(cuid())
+  metricName String
+  value     Float
+  timestamp DateTime @default(now())
+
+  // Relations
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  agentId   String
+
+  @@map("agent_metrics")
+}
+
+model Notification {
+  id        String            @id @default(cuid())
+  title     String
+  message   String
+  type      NotificationType
+  priority  NotificationPriority @default(MEDIUM)
+  read      Boolean           @default(false)
+  createdAt DateTime          @default(now())
+
+  // Relations
+  user      User?             @relation(fields: [userId], references: [id])
+  userId    String?
+  agent     Agent?            @relation(fields: [agentId], references: [id])
+  agentId   String?
+
+  @@map("notifications")
+}
+
+model FuelLog {
+  id          String   @id @default(cuid())
+  gallons     Float
+  pricePerGallon Float
+  totalCost   Float
+  location    String
+  odometer    Int
+  timestamp   DateTime @default(now())
+
+  // Relations
+  driver      Driver   @relation(fields: [driverId], references: [id])
+  driverId    String
+  truck       Truck    @relation(fields: [truckId], references: [id])
+  truckId     String
+
+  @@map("fuel_logs")
+}
+
+model HOSLog {
+  id          String   @id @default(cuid())
+  date        DateTime
+  onDutyTime  Int      // minutes
+  drivingTime Int      // minutes
+  sleepTime   Int      // minutes
+  offDutyTime Int      // minutes
+  violations  String[]
+  status      HOSStatus @default(COMPLIANT)
+
+  // Relations
+  driver      Driver   @relation(fields: [driverId], references: [id])
+  driverId    String
+
+  @@map("hos_logs")
+}
+
+model ComplianceEvent {
+  id          String          @id @default(cuid())
+  eventType   ComplianceType
+  severity    ComplianceSeverity
+  description String
+  resolved    Boolean         @default(false)
+  dueDate     DateTime?
+  resolvedAt  DateTime?
+  createdAt   DateTime        @default(now())
+
+  // Relations
+  driver      Driver?         @relation(fields: [driverId], references: [id])
+  driverId    String?
+
+  @@map("compliance_events")
+}
+
+model MaintenanceLog {
+  id          String   @id @default(cuid())
+  type        String
+  description String
+  cost        Float
+  mileage     Int
+  nextDue     DateTime?
+  completed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  // Relations
+  truck       Truck    @relation(fields: [truckId], references: [id])
+  truckId     String
+
+  @@map("maintenance_logs")
+}
+
+model KPI {
+  id        String   @id @default(cuid())
+  name      String
+  value     Float
+  unit      String
+  category  String
+  timestamp DateTime @default(now())
+
+  @@map("kpis")
+}
+
+// Enums
+enum UserRole {
+  ADMIN
+  DISPATCHER
+  MANAGER
+  DRIVER
+}
+
+enum DriverStatus {
+  AVAILABLE
+  ON_DUTY
+  DRIVING
+  OFF_DUTY
+  OUT_OF_SERVICE
+}
+
+enum TruckStatus {
+  AVAILABLE
+  IN_USE
+  MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+enum LoadStatus {
+  AVAILABLE
+  ASSIGNED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+enum AgentType {
+  LOAD_MATCHING
+  ROUTE_OPTIMIZATION
+  FUEL_OPTIMIZATION
+  COMPLIANCE_MONITORING
+  CUSTOMER_COMMUNICATION
+  FINANCIAL_TRACKING
+}
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  MAINTENANCE
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  ERROR
+  SUCCESS
+  ALERT
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum HOSStatus {
+  COMPLIANT
+  WARNING
+  VIOLATION
+}
+
+enum ComplianceType {
+  HOS_VIOLATION
+  WEIGHT_VIOLATION
+  PERMIT_EXPIRED
+  INSPECTION_DUE
+  LICENSE_EXPIRED
+  DOT_VIOLATION
+}
+
+enum ComplianceSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
